@@ -55,6 +55,7 @@ gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"
     --prefix=$PY_PREFIX \
 	--build="$gnuArch" \
     --disable-shared \
+    --without-ensurepip \
     LDFLAGS="-static" CFLAGS="-static" CPPFLAGS="-static" 
 nproc="$(nproc)"
 EXTRA_CFLAGS="$(dpkg-buildflags --get CFLAGS)"
