@@ -13,15 +13,21 @@ workload="chaos"
 # Pinned core, use default/0/1/2/2,10...
 core=2
 
+# duration and tps
+duration=0
+tps=0
+
 # Enable perf, use true/false
-perf_enalbed="false"
+# perf_enalbed="false"
+perf_enalbed="true"
 perf_bin="/home/yangge/pyperformance/os.linux.intelnext.kernel/tools/perf/perf"
 # perf delay and duration(seconds)
 perf_delay=5
 perf_duration=10
 
 # Enable emon, use true/false
-emon_enabled="true"
+# emon_enabled="true"
+emon_enabled="false"
 # emon delay and duration(seconds)
 emon_delay=5
 emon_duration=10
@@ -68,9 +74,10 @@ fi
 
 cur_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd)"
 timestamp=$(date +%Y%m%d%H%M%S)
-result_dir=$workload-$timestamp
+result_dir=$cur_dir/$workload-$timestamp
 mkdir $result_dir
 # pyperf_result_warmup=$result_dir/$workload-warmup.json
+pyperf_warmup_log=$result_dir/pyperf-warmup-$workload.log
 pyperf_result=$result_dir/$workload.json
 pyperf_log=$result_dir/pyperf-$workload.log
 
@@ -87,7 +94,7 @@ if [ $workload = "all" ]; then
         --inherit-environ http_proxy,https_proxy \
         $core_cmd \
         -r \
-        -p $python
+        -p $python | tee -a ${pyperf_warmup_log}
 else
     echo "Run benchmark "$workload
     python3 -m pyperformance run \
@@ -95,119 +102,31 @@ else
         $core_cmd \
         -r \
         -p $python \
-        --benchmarks $workload
+        --benchmarks $workload | tee -a ${pyperf_warmup_log}
 fi
 
-# Collect perf data
-collect_perf(){
-    echo "Collect perf data"
+
+# Extract execution time info from result
+caculate_duration(){
     cd $result_dir
-    # $perf_bin script > $result_dir/perf.data
     echo "-------------------------------------------------------------------------------"
-    echo "Sleeping for ${perf_delay} secs"
-    sleep $perf_delay
-    echo "-------------------------------------------------------------------------------"
-    echo "Collecting perf record for ${perf_duration} secs"
-    echo "-------------------------------------------------------------------------------"
-
-    start_perf_time=$(date)
-    echo "Start perf: ${start_perf_time}" > perf.log
-
-    echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
-    # sudo ${perf_bin} record -e cycles,instructions -g -F 99 -a -- sleep ${perf_duration}
-    sudo ${perf_bin} record -g -F 99 -a -- sleep ${perf_duration}
-
-    stop_perf_time=$(date)
-
-    echo "-------------------------------------------------------------------------------"
-    # sudo perf record -e cycles,instructions -g -F 99 -a -- sleep 30
-    echo "sudo $perf_bin record -e cycles,instructions -g -F 99 -a -- sleep ${perf_duration}" >> perf.log
-    echo "Stop perf: ${stop_perf_time}" >> perf.log
-    perf_ver=$(${perf_bin} --version)
-    echo "Perf version: ${perf_ver}" >> perf.log
-
-    sudo chown $USER:$USER perf.data
-
-    echo "Process perf record data"
-    sudo $perf_bin report -f -n --sort=dso --max-stack=0 --stdio > perf-report-out.txt
-    sudo chown $USER:$USER perf-report-out.txt
-    echo "-------------------------------------------------------------------------------"
-    cd $cur_dir
-}
-
-# Collect emon data
-collect_emon(){
-    echo "Collect emon data"
-    cd $result_dir
-
-    line="------------------------------------------------------------"
-    echo ${line}
-    echo "Sleeping for ${emon_delay} secs"
-    sleep ${emon_delay}
-    echo ${line}
-    echo ${line} >> emon.log
-    start_emon_time=$(date)
-    echo "Start EMON: ${start_emon_time}" >> emon.log
-
-    # nohup emon -collect-edp -f emon.dat & sleep ${emon_duration}; emon -stop
-    if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
-        # CLX, ICX, SPR
-        nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_server_events_private.txt > emon.dat 2>&1 &
-
-    elif [ ${edp_architecture_codename} == "amd" ]; then
-        # AMD
-        nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_events_private.txt > emon.dat 2>&1 &
-    fi
-
-    sleep $emon_duration
-
-    emon -stop
-    emon -v > emon-v.dat
-    emon -M > emon-M.dat
-
-    sudo dmidecode > dmidecode.txt
-    grep 'stepping\|model\|microcode' /proc/cpuinfo > microcode.txt
-    cat /proc/meminfo > meminfo-after.txt
-
-    stop_emon_time=$(date)
-    echo "Stop EMON: ${stop_emon_time}" >> emon.log
-
-    if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
-        # CLX, ICX, SPR
-        echo "EMON Command: nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_server_events_private.txt > emon.dat 2>&1" >> emon.log
-    elif [ ${edp_architecture_codename} == "amd" ]; then
-        # AMD
-        echo "EMON Command: nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_events_private.txt > emon.dat 2>&1" >> emon.log
-    fi
-
-    echo ${line}
-    echo ${line} >> emon.log
-
-    lscpu > lscpu.txt
-    cd $cur_dir
-}
-
-# Extract execution time info from result, and calculate TPS
-caculate_duration_tps(){
-    cd $result_dir
-    if [ -f duration_tps.txt ]; then
-        rm duration_tps.txt
-    fi
-    touch duration_tps.txt
-    echo "-------------------------------------------"
     echo "Extracting benchmark duration"
-    date_str=$(cat pyperf-$workload.log | grep -i 'Start date')
+    date_str=$(cat pyperf-warmup-$workload.log | grep -i 'Start date')
     echo $date_str
     date=${date_str#*: }
     start_date=$(date -d "$date" +%s)
-    date_str=$(cat pyperf-$workload.log | grep -i 'End date')
+    date_str=$(cat pyperf-warmup-$workload.log | grep -i 'End date')
     echo $date_str
     date=${date_str#*: }
     end_date=$(date -d "$date" +%s)
     duration=$(($end_date - $start_date))
     echo Benchmark duration: $duration secs
-    echo "Benchmark duration: $duration secs" >> duration_tps.txt
-    echo "-------------------------------------------"
+    cd $cur_dir
+}
+
+# Caculate TPS automatically
+caculate_tps(){
+    echo "-------------------------------------------------------------------------------"
     echo "Calculating TPS"
     if [ -f mean.txt ]; then
         rm mean.txt
@@ -256,64 +175,108 @@ caculate_duration_tps(){
 
     tps=$(echo "scale=2; 1/$geometric_mean" | bc)
     echo "TPS: $tps"
-    echo "TPS: $tps" >> duration_tps.txt
-    echo "-------------------------------------------"
-    $1=$tps
+}
+
+# Collect perf data
+collect_perf(){
+    echo "Collect perf data"
+    cd $result_dir
+    caculate_duration
+    perf_duration=expr $duration - $perf_delay
+    # $perf_bin script > $result_dir/perf.data
+    echo "-------------------------------------------------------------------------------"
+    echo "Sleeping for ${perf_delay} secs"
+    sleep $perf_delay
+    echo "-------------------------------------------------------------------------------"
+    echo "Collecting perf record for ${perf_duration} secs"
+    echo "-------------------------------------------------------------------------------"
+
+    start_perf_time=$(date)
+    echo "Start perf: ${start_perf_time}" > perf.log
+
+    echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+    # sudo ${perf_bin} record -e cycles,instructions -g -F 99 -a -- sleep ${perf_duration}
+    sudo ${perf_bin} record -g -F 99 -a -- sleep ${perf_duration}
+
+    stop_perf_time=$(date)
+
+    echo "-------------------------------------------------------------------------------"
+    # sudo perf record -e cycles,instructions -g -F 99 -a -- sleep 30
+    echo "sudo $perf_bin record -e cycles,instructions -g -F 99 -a -- sleep ${perf_duration}" >> perf.log
+    echo "Stop perf: ${stop_perf_time}" >> perf.log
+    perf_ver=$(${perf_bin} --version)
+    echo "Perf version: ${perf_ver}" >> perf.log
+
+    sudo chown $USER:$USER perf.data
+
+    echo "Process perf record data"
+    sudo $perf_bin report -f -n --sort=dso --max-stack=0 --stdio > perf-report-out.txt
+    sudo chown $USER:$USER perf-report-out.txt
+    echo "-------------------------------------------------------------------------------"
     cd $cur_dir
 }
-# # Caculate TPS automatically
-# caculate_tps(){
-#     cd $result_dir
-#     echo "Extract execution time info from result, and calculate TPS"
-#     if [ -f mean.txt ]; then
-#         rm mean.txt
-#     fi
-#     python3 -m pyperformance show $workload.json | grep 'Mean' > mean.txt
-#     function geometric_mean() {
-#         # Python version should be higher than 3.8
-#         python3 -c 'from statistics import geometric_mean; import sys; \
-#             data=[float(x) for x in open(sys.stdin.readlines())]; \
-#             print(geometric_mean(data))'
-#     }
-#     if [ -f mean-result.txt ]; then
-#         rm mean-result.txt
-#     fi
-#     touch mean-result.txt
-#     cat mean.txt | while read line; do
-#         mean=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 2)
-#         time_type=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 3)
-#         # echo $mean $time_type
-#         if [ $time_type = "ms" ]; then
-#             mean=$(echo "scale=10; $mean/1000" | bc)
-#         elif [ $time_type = "us" ]; then
-#             mean=$(echo "scale=10; $mean/1000000" | bc)
-#         elif [ $time_type = "ns" ]; then
-#             mean=$(echo "scale=10; $mean/1000000000" | bc)
-#         fi
-#         # echo $mean secs
-#         echo $mean >> mean-result.txt
-#     done
-#     geometric_mean=$(cat mean-result.txt | cut -f2 -d, | geometric_mean)
-#     echo geometric_mean=$geometric_mean secs
 
-#     tps=$(echo "scale=2; 1/$geometric_mean" | bc)
-#     echo "-------------------------------------------------------------------------------"
-#     echo TPS=$tps
-#     echo "-------------------------------------------------------------------------------"
-#     cd $cur_dir
-# }
+# Collect emon data
+collect_emon(){
+    line="-------------------------------------------------------------------------------"
+    echo "Collecting emon data"
+    echo ${line}
+    echo "Sleeping for ${emon_delay} secs"
+    sleep ${emon_delay}
+    echo ${line}
+    echo ${line} >> emon.log
+    start_emon_time=$(date)
+    echo "Start EMON: ${start_emon_time}" >> emon.log
+
+    # nohup emon -collect-edp -f emon.dat & sleep ${emon_duration}; emon -stop
+    if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
+        # CLX, ICX, SPR
+        nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_server_events_private.txt > emon.dat 2>&1 &
+
+    elif [ ${edp_architecture_codename} == "amd" ]; then
+        # AMD
+        nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_events_private.txt > emon.dat 2>&1 &
+    fi
+
+    sleep $emon_duration
+
+    emon -stop
+    emon -v > emon-v.dat
+    emon -M > emon-M.dat
+
+    sudo dmidecode > dmidecode.txt
+    grep 'stepping\|model\|microcode' /proc/cpuinfo > microcode.txt
+    cat /proc/meminfo > meminfo-after.txt
+
+    stop_emon_time=$(date)
+    echo "Stop EMON: ${stop_emon_time}" >> emon.log
+
+    if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
+        # CLX, ICX, SPR
+        echo "EMON Command: nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_server_events_private.txt > emon.dat 2>&1" >> emon.log
+    elif [ ${edp_architecture_codename} == "amd" ]; then
+        # AMD
+        echo "EMON Command: nohup emon -v -i /opt/intel/sep/config/edp/${edp_architecture_codename}_events_private.txt > emon.dat 2>&1" >> emon.log
+    fi
+
+    echo ${line}
+    echo ${line} >> emon.log
+
+    lscpu > lscpu.txt
+    cd $cur_dir
+}
 
 process_emon_data(){
+    cd $result_dir
     if ! command -v ruby &> /dev/null
     then
         echo "Ruby is not installed; installing ruby…"
         sudo apt install ruby -y
     fi
-
-    echo "------------------------------------------------------------"
+    echo "-------------------------------------------------------------------------------"
     echo "Processing EMON for ${edp_architecture_codename} ${edp_architecture_sockets} and generating CSVs..."
-    caculate_duration_tps $tps
-    echo "in process_emon_data, tps=$tps"
+    caculate_tps
+    echo "TPS=$tps"
     cd $result_dir
     if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
         # CLX, ICX, SPR
@@ -339,13 +302,13 @@ process_emon_data(){
     # mkdir ./small-core-csvs; mv summary_smallcore.xlsx ./small-core-csvs; mv *.csv ./small-core-csvs
 
     echo ""
-    echo "------------------------------------------------------------"
+    echo "-------------------------------------------------------------------------------"
     echo ""
     # echo "-->> __edp_system_view_summary.per_txn.csv <<---"
     # cat __edp_system_view_summary.per_txn.csv
-    # echo "------------------------------------------------------------"
+    # echo "-------------------------------------------------------------------------------"
     # awk -F',' '{print $2}' __edp_system_view_summary.per_txn.csv 
-    # echo "------------------------------------------------------------"
+    # echo "-------------------------------------------------------------------------------"
     cd $cur_dir
 }
 
