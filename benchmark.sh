@@ -9,7 +9,7 @@
 python="/home/yangge/pyperformance/python3.11.2/bin/python3.11.2"
 # Workload name, use all/fannkuch...
 # workload="chaos"
-workload="fannkuch"
+workload="chaos"
 # Pinned core, use default/0/1/2/2,10...
 core=2
 
@@ -187,28 +187,54 @@ collect_emon(){
     cd $cur_dir
 }
 
-# Caculate TPS automatically
-caculate_tps(){
+# Extract execution time info from result, and calculate TPS
+caculate_duration_tps(){
     cd $result_dir
-    echo "Extract execution time info from result, and calculate TPS"
+    if [ -f duration_tps.txt ]; then
+        rm duration_tps.txt
+    fi
+    touch duration_tps.txt
+    echo "-------------------------------------------"
+    echo "Extracting benchmark duration"
+    date_str=$(cat pyperf-$workload.log | grep -i 'Start date')
+    echo $date_str
+    date=${date_str#*: }
+    start_date=$(date -d "$date" +%s)
+    date_str=$(cat pyperf-$workload.log | grep -i 'End date')
+    echo $date_str
+    date=${date_str#*: }
+    end_date=$(date -d "$date" +%s)
+    duration=$(($end_date - $start_date))
+    echo Benchmark duration: $duration secs
+    echo "Benchmark duration: $duration secs" >> duration_tps.txt
+    echo "-------------------------------------------"
+    echo "Calculating TPS"
     if [ -f mean.txt ]; then
         rm mean.txt
     fi
-    python3 -m pyperformance show $workload.json | grep 'Mean' > mean.txt
-    function geometric_mean() {
-        # Python version should be higher than 3.8
-        python3 -c 'from statistics import geometric_mean; import sys; \
-            data=[float(x) for x in open("mean-result.txt")]; \
-            print(geometric_mean(data))'
-    }
+    # python3 -m pyperformance show $workload.json | grep 'Mean' > mean.txt
+    if [ $workload = "all" ]
+    then
+        echo if
+        # Collect all workloads mean results
+        string_flag="Start date:"
+        last_line=$(sed -n "/$string_flag/=" pyperf-$workload.log | awk '{print $1-1}')
+        echo lateline=$last_line
+        sed -n "1,${last_line}p" pyperf-$workload.log | grep -i ': Mean' > mean.txt
+    else
+        cat pyperf-$workload.log | grep -i "$workload: Mean" > mean.txt
+    fi
+
+    # Move time unit to second from mead.txt to mean-result.txt
     if [ -f mean-result.txt ]; then
         rm mean-result.txt
     fi
     touch mean-result.txt
     cat mean.txt | while read line; do
-        mean=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 2)
-        time_type=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 3)
-        # echo $mean $time_type
+        workload=$(echo "$line" | cut -d ':' -f 1)
+        mean=$(echo "$line" | cut  -d ':' -f 3 | cut -d ' ' -f 2)
+        time_type=$(echo "$line" | cut  -d ':' -f 3 | cut -d ' ' -f 3)
+        
         if [ $time_type = "ms" ]; then
             mean=$(echo "scale=10; $mean/1000" | bc)
         elif [ $time_type = "us" ]; then
@@ -216,18 +242,66 @@ caculate_tps(){
         elif [ $time_type = "ns" ]; then
             mean=$(echo "scale=10; $mean/1000000000" | bc)
         fi
-        # echo $mean sec
+
         echo $mean >> mean-result.txt
     done
+    function geometric_mean() {
+        # Python version should be higher than 3.8
+        python3 -c 'from statistics import geometric_mean; import sys; \
+            data=[float(x) for x in sys.stdin.readlines()]; \
+            print(geometric_mean(data))'
+    }
     geometric_mean=$(cat mean-result.txt | cut -f2 -d, | geometric_mean)
-    echo geometric_mean=$geometric_mean s
+    echo "geometric_mean=$geometric_mean secs" >> duration_tps.txt
 
     tps=$(echo "scale=2; 1/$geometric_mean" | bc)
-    echo "-------------------------------------------------------------------------------"
-    echo TPS=$tps
-    echo "-------------------------------------------------------------------------------"
+    echo "TPS: $tps"
+    echo "TPS: $tps" >> duration_tps.txt
+    echo "-------------------------------------------"
+    $1=$tps
     cd $cur_dir
 }
+# # Caculate TPS automatically
+# caculate_tps(){
+#     cd $result_dir
+#     echo "Extract execution time info from result, and calculate TPS"
+#     if [ -f mean.txt ]; then
+#         rm mean.txt
+#     fi
+#     python3 -m pyperformance show $workload.json | grep 'Mean' > mean.txt
+#     function geometric_mean() {
+#         # Python version should be higher than 3.8
+#         python3 -c 'from statistics import geometric_mean; import sys; \
+#             data=[float(x) for x in open(sys.stdin.readlines())]; \
+#             print(geometric_mean(data))'
+#     }
+#     if [ -f mean-result.txt ]; then
+#         rm mean-result.txt
+#     fi
+#     touch mean-result.txt
+#     cat mean.txt | while read line; do
+#         mean=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 2)
+#         time_type=$(echo "$line" | cut  -d ':' -f 2 | cut -d ' ' -f 3)
+#         # echo $mean $time_type
+#         if [ $time_type = "ms" ]; then
+#             mean=$(echo "scale=10; $mean/1000" | bc)
+#         elif [ $time_type = "us" ]; then
+#             mean=$(echo "scale=10; $mean/1000000" | bc)
+#         elif [ $time_type = "ns" ]; then
+#             mean=$(echo "scale=10; $mean/1000000000" | bc)
+#         fi
+#         # echo $mean secs
+#         echo $mean >> mean-result.txt
+#     done
+#     geometric_mean=$(cat mean-result.txt | cut -f2 -d, | geometric_mean)
+#     echo geometric_mean=$geometric_mean secs
+
+#     tps=$(echo "scale=2; 1/$geometric_mean" | bc)
+#     echo "-------------------------------------------------------------------------------"
+#     echo TPS=$tps
+#     echo "-------------------------------------------------------------------------------"
+#     cd $cur_dir
+# }
 
 process_emon_data(){
     if ! command -v ruby &> /dev/null
@@ -238,7 +312,8 @@ process_emon_data(){
 
     echo "------------------------------------------------------------"
     echo "Processing EMON for ${edp_architecture_codename} ${edp_architecture_sockets} and generating CSVs..."
-    caculate_tps $tps
+    caculate_duration_tps $tps
+    echo "in process_emon_data, tps=$tps"
     cd $result_dir
     if [ ${edp_architecture_codename} == "cascadelake" ] || [ ${edp_architecture_codename} == "icelake" ] || [ ${edp_architecture_codename} == "sapphirerapids" ]; then
         # CLX, ICX, SPR
