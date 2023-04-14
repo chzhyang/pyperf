@@ -1,8 +1,13 @@
 #!/bin/bash
-# Run pyperformance benchmark on host.
-# Usage: ./benchmark.sh <workload> <perf/emon>
-# Example1: ./benchmark.sh pidigits perf
-# Example2: ./benchmark.sh all emon
+# Run pyperformance benchmark on host. 
+# For every workload: 
+# 1. Run 1 time pyperformance benchmark with warmup
+# 2. Run 1 time pyperformance benchmark with perf
+# 3. Run 3 time pyperformance benchmark with emon
+# Usage: ./benchmark-loop.sh 
+
+
+# TODO: perf process not stable
 
 # set -x
 
@@ -10,7 +15,6 @@
 # Python binary path for pyperformance, use default//usr/bin/python3.11.2...
 python="/home/yangge/pyperformance/python3.11.2/bin/python3.11.2"
 # Workload name, use all/fannkuch...
-workload=$1
 # workload="chaos"
 # Pinned core, use default/0/1/2/2,10...
 core=2
@@ -34,14 +38,6 @@ emon_enabled="true"
 emon_delay=5
 emon_duration=10
 
-if [ $2 = "perf" ]; then
-    perf_enalbed="true"
-    emon_enabled="false"
-else
-    perf_enalbed="false"
-    emon_enabled="true"
-fi
-
 # CPU architcture and sockets
 #edp_architecture_codename="cascadelake"
 #edp_architecture_codename="icelake"
@@ -50,91 +46,89 @@ edp_architecture_codename="sapphirerapids"
 
 #edp_architecture_sockets="1s"
 edp_architecture_sockets="2s"
-
-# Check parameters
-if [ $python = "default" ]; then
-    python="/usr/bin/python3"
-fi
-
-if [ $perf_enalbed = "true" ]; then
-    if ! command -v ${perf_bin} &> /dev/null
-    then
-        echo "perf is not installed"
-        echo "Please installing perf..."
-        exit 1
-        # sudo apt install linux-tools-`uname -r` -y
-    fi
-fi
-
-if [ $emon_enabled = "true" ]; then
-    # Verify EMON is working first
-    source /opt/intel/sep/sep_vars.sh
-    output=$(bash -c 'emon -v' 2>&1)
-    grep Error <<< "$output"
-    error_found=$?
-    if [[ ${error_found} -eq 0 ]]; then
-        echo "EMON is broken or not installed"
-        echo "Exiting automation..."
-        exit 1
-    else
-        echo "EMON works"
-        echo "Proceeding with run..."
-    fi
-fi
-
-cur_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd)"
-timestamp=$(date +%Y%m%d%H%M%S)
-result_dir=$cur_dir/$workload-$timestamp
-mkdir $result_dir
-echo result_dir=$result_dir
-# pyperf_result_warmup=$result_dir/$workload-warmup.json
-pyperf_warmup_log=$result_dir/pyperf-warmup-$workload.log
-pyperf_result=$result_dir/$workload.json
-pyperf_log=$result_dir/pyperf-$workload.log
-
-# Print parameters
-touch $result_dir/config.txt
-echo "python=$python" >> $result_dir/config.txt
-echo "workload=$workload" >> $result_dir/config.txt
-echo "core=$core" >> $result_dir/config.txt
-echo "perf_enalbed=$perf_enalbed" >> $result_dir/config.txt
-echo "perf_bin=$perf_bin" >> $result_dir/config.txt
-echo "perf_delay=$perf_delay" >> $result_dir/config.txt
-echo "perf_duration=$perf_duration" >> $result_dir/config.txt
-echo "emon_enabled=$emon_enabled" >> $result_dir/config.txt
-echo "emon_delay=$emon_delay" >> $result_dir/config.txt
-echo "emon_duration=$emon_duration" >> $result_dir/config.txt
-echo "edp_architecture_codename=$edp_architecture_codename" >> $result_dir/config.txt
-echo "edp_architecture_sockets=$edp_architecture_sockets" >> $result_dir/config.txt
-echo "result_dir=$result_dir" >> $result_dir/config.txt
-
-echo "-------------------------------------------------------------------------------"
-echo "Run benchmark first as warm up"
 if [ $core = "default" ]; then
     core_cmd=""
 else
     core_cmd="--affinity $core"
 fi
-
-if [ $workload = "all" ]; then
-    python3 -m pyperformance run \
-        --inherit-environ http_proxy,https_proxy \
-        $core_cmd \
-        -r \
-        -p $python | tee -a ${pyperf_warmup_log}
-else
-    python3 -m pyperformance run \
-        --inherit-environ http_proxy,https_proxy \
-        $core_cmd \
-        -r \
-        -p $python \
-        --benchmarks $workload | tee -a ${pyperf_warmup_log}
+# Check parameters
+if [ $python = "default" ]; then
+    python="/usr/bin/python3"
 fi
-echo "-------------------------------------------------------------------------------"
+
+# Verify perf is working
+if ! command -v ${perf_bin} &> /dev/null
+then
+    echo "perf is not installed"
+    echo "Please installing perf..."
+    exit 1
+    # sudo apt install linux-tools-`uname -r` -y
+fi
+
+# Verify EMON is working
+source /opt/intel/sep/sep_vars.sh
+output=$(bash -c 'emon -v' 2>&1)
+grep Error <<< "$output"
+error_found=$?
+if [[ ${error_found} -eq 0 ]]; then
+    echo "EMON is broken or not installed"
+    echo "Exiting automation..."
+    exit 1
+else
+    echo "EMON works"
+    echo "Proceeding with run..."
+fi
+
+# Print confiuration
+print_confiuration(){
+    config_dir=$1/config.txt
+    touch $config_dir
+    echo "python=$python" >> $config_dir
+    echo "python=$python" >> $config_dir
+    echo "workload=$workload" >> $config_dir
+    echo "core=$core" >> $config_dir
+    echo "perf_enalbed=$perf_enalbed" >> $config_dir
+    echo "perf_bin=$perf_bin" >> $config_dir
+    echo "perf_delay=$perf_delay" >> $config_dir
+    echo "perf_duration=$perf_duration" >> $config_dir
+    echo "emon_enabled=$emon_enabled" >> $config_dir
+    echo "emon_delay=$emon_delay" >> $config_dir
+    echo "emon_duration=$emon_duration" >> $config_dir
+    echo "edp_architecture_codename=$edp_architecture_codename" >> $config_dir
+    echo "edp_architecture_sockets=$edp_architecture_sockets" >> $config_dir
+    echo "result_dir=$1" >> $config_dir
+
+    lscpu > $1/lscpu.txt
+}
+
+
+benchmark_warmup(){
+    echo "-------------------------------------------------------------------------------"
+    echo "Run benchmark first as warm up"
+    # Tune system to reduce the system jitter, and get stable benchmarks
+    # https://pyperformance.readthedocs.io/usage.html#how-to-get-stable-benchmarks
+    # python3 -m pyperf system tune
+    if [ $workload = "all" ]; then
+        python3 -m pyperformance run \
+            --inherit-environ http_proxy,https_proxy \
+            $core_cmd \
+            -r \
+            -p $python | tee -a ${pyperf_warmup_log}
+    else
+        python3 -m pyperformance run \
+            --inherit-environ http_proxy,https_proxy \
+            $core_cmd \
+            -r \
+            -p $python \
+            --benchmarks $workload | tee -a ${pyperf_warmup_log}
+    fi
+    echo "-------------------------------------------------------------------------------"
+}
+
 
 # Extract execution time info from result
 caculate_duration(){
-    cd $result_dir
+    cd $1
     echo "-------------------------------------------------------------------------------"
     echo "Extracting benchmark duration"
     date_str=$(cat pyperf-warmup-$workload.log | grep -i 'Start date')
@@ -156,7 +150,7 @@ caculate_duration(){
 caculate_tps(){
     echo "-------------------------------------------------------------------------------"
     echo "Calculating TPS"
-    cd $result_dir
+    cd $1
     if [ -f mean.txt ]; then
         rm mean.txt
     fi
@@ -209,10 +203,23 @@ caculate_tps(){
 
 # Collect perf data
 collect_perf(){
-    cd $result_dir
-    perf_duration=`expr $duration - $perf_delay`
-    perf_duration=`expr $perf_duration - $perf_delay`
-    # $perf_bin script > $result_dir/perf.data
+    if [ ! -d $1 ]; then
+        echo "[collect perf] $1 not exit"
+    else
+        echo "[collect perf] $1 exists"
+    fi
+    cd $1
+    echo pwd=$(pwd)
+
+    if [ $perf_duration -gt `expr $duration - 2 \* $perf_delay` ]; then
+        perf_duration=`expr $duration - 2 \* $perf_delay`
+    elif [ $perf_duration -gt `expr $duration - $perf_delay` ]; then
+        perf_duration=`expr $duration - $perf_delay`
+    else
+        perf_delay=2
+        perf_duration=`expr $duration - $perf_delay`
+    fi
+    
     echo "-------------------------------------------------------------------------------"
     echo "Sleeping for ${perf_delay} secs"
     sleep $perf_delay
@@ -239,7 +246,7 @@ collect_perf(){
     sudo chown $USER:$USER perf.data
 
     echo "Process perf record data"
-    sudo $perf_bin report -f -n --sort=dso --max-stack=0 --stdio > perf-report-out.txt
+    sudo ${perf_bin} report -f -n --sort=dso --max-stack=0 --stdio > perf-report-out.txt
     sudo chown $USER:$USER perf-report-out.txt
     echo "-------------------------------------------------------------------------------"
     cd $cur_dir
@@ -247,14 +254,18 @@ collect_perf(){
 
 # Collect emon data
 collect_emon(){
-    cd $result_dir
-    line="-------------------------------------------------------------------------------"
+    echo "-------------------------------------------------------------------------------"
     echo "Collecting emon data"
-    echo ${line}
+    if [ ! -d $1 ]; then
+        echo "[collect emon] $1 not exit"
+    else
+        echo "[collect emon] $1 exists"
+    fi
+    echo pwd=$(pwd)
+    cd $1
+    
     echo "Sleeping for ${emon_delay} secs"
     sleep ${emon_delay}
-    echo ${line}
-    echo ${line} >> emon.log
     start_emon_time=$(date)
     echo "Start EMON: ${start_emon_time}" >> emon.log
 
@@ -292,12 +303,12 @@ collect_emon(){
     echo ${line}
     echo ${line} >> emon.log
 
-    lscpu > lscpu.txt
     cd $cur_dir
 }
 
 process_emon_data(){
-    cd $result_dir
+    cd $1
+    echo pwd=$(pwd)
     if ! command -v ruby &> /dev/null
     then
         echo "Ruby is not installed; installing ruby…"
@@ -342,65 +353,138 @@ process_emon_data(){
 
 # Read benchmark output, if target string is in the output, start to collect data
 collect_data(){
+    if [ ! -d $1 ]; then
+        echo "[collect data] $1 not exit"
+    else
+        echo "[collect data] $1 exists"
+    fi
     if [ $workload = "all" ]; then
         target_string="[ 1/62] 2to3"
     else
         target_string="[ 1/[0-9]*] ${workload}"
     fi
     echo "[collect data] Checking if the pyperf log file contains the target string: $target_string"
+    wait_time=0
+    timeout=600
     while true; do
         # if the pyperf log file contains the target string, run perf/emon
         if tail $pyperf_log | grep -q "$target_string"; then
             if [ $perf_enalbed = "true" ] && [ $benchmark = "true" ]; then
-                collect_perf
+                collect_perf $1
                 break
             fi
             if [ $emon_enabled = "true" ] && [ $benchmark = "true" ]; then
-                collect_emon
+                collect_emon $1
+                process_emon_data $1
                 break
             fi
             break
+        elif [ $wait_time -gt $timeout ]; then
+            echo "[collect data] timeout, exit"
+            break
         else
-            echo "[collect data] Wait for 1s and check again"
-            sleep 1
+            echo "[collect data] Wait for 2s and check again, waited $wait_time secs, timeout is $timeout secs"
+            wait_time=`expr $wait_time + 2`
+            sleep 2
         fi
     done
 }
 
-caculate_duration
-caculate_tps
-benchmark="true"
-if [ -f $pyperf_result ]; then
+benchmark_collect_data(){
+    $pypref_result=$1
+    $data_dir=$2
+    if [ -f $pyperf_result ]; then
         rm -f $pyperf_result
-fi
-if [ -f $pyperf_log ]; then
-    rm -f $pyperf_log
-fi
-touch $pyperf_log
-# ./collect-data.sh $workload $pyperf_log $result_dir > $result_dir/collect.log
-# collect_data > $result_dir/collect.log &
-collect_data &
-echo "-------------------------------------------------------------------------------"
-echo "Run benchmark for data collection"
-if [ $workload = "all" ]
-then
-    python3 -m pyperformance run \
-        --inherit-environ http_proxy,https_proxy \
-        $core_cmd \
-        -r \
-        -p $python \
-        -o $pyperf_result | tee -a ${pyperf_log}
-else
-    python3 -m pyperformance run \
-        --inherit-environ http_proxy,https_proxy \
-        $core_cmd \
-        -r \
-        -p $python \
-        --benchmarks $workload \
-        -o $pyperf_result | tee -a ${pyperf_log}
-fi
-echo "-------------------------------------------------------------------------------"
+    fi
+    if [ -f $pyperf_log ]; then
+        rm -f $pyperf_log
+    fi
+    touch $pyperf_log
+    echo "-------------------------------------------------------------------------------"
+    echo "Run benchmark for data collection"
+    echo "collect data dir: $data_dir"
+    
+    collect_data $data_dir &
+    # Tune system to reduce the system jitter, and get stable benchmarks
+    # https://pyperformance.readthedocs.io/usage.html#how-to-get-stable-benchmarks
+    # python3 -m pyperf system tune
+    if [ $workload = "all" ]
+    then
+        python3 -m pyperformance run \
+            --inherit-environ http_proxy,https_proxy \
+            $core_cmd \
+            -r \
+            -p $python \
+            -o $pyperf_result | tee -a ${pyperf_log}
+    else
+        python3 -m pyperformance run \
+            --inherit-environ http_proxy,https_proxy \
+            $core_cmd \
+            -r \
+            -p $python \
+            --benchmarks $workload \
+            -o $pyperf_result | tee -a ${pyperf_log}
+    fi
+    echo "-------------------------------------------------------------------------------"
+}
 
-if [ $emon_enabled = "true" ]; then
-    process_emon_data
+
+# Prepare result dir for loop
+cur_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd)"
+echo cur_dir=$cur_dir
+loop_result_dir=$cur_dir/pyperf-loop-result
+if [ -d "$loop_result_dir" ]; then
+    rm -rf $loop_result_dir
+    echo "Remove $loop_result_dir"
 fi
+mkdir $loop_result_dir
+echo loop_result_dir=$loop_result_dir
+
+# Loop run pyperformance benchmark workloads
+echo "Loop run pyperformance benchmark workloads"
+cat $cur_dir/pyperformance-list.txt | while read line; do
+    # Prepare result dir for current workload
+    workload=$line
+    workload_result_dir=$loop_result_dir/$workload
+    mkdir $workload_result_dir
+    echo "workload_result_dir=$workload_result_dir"
+    # pyperf_result_warmup=$result_dir/$workload-warmup.json
+    pyperf_warmup_log=$workload_result_dir/pyperf-warmup-$workload.log
+    pyperf_result=$workload_result_dir/$workload.json
+    pyperf_log=$workload_result_dir/pyperf-$workload.log
+
+    # Print configuration
+    print_confiuration $workload_result_dir
+    
+    # Run 1 time pyperformance benchmark with warmup, then caculate duration and tps
+    workload=$line
+    benchmark_warmup
+    caculate_duration $workload_result_dir
+    caculate_tps $workload_result_dir
+
+    benchmark="true"
+    # Run 1 time pyperformance benchmark with perf for current workload
+    echo "Run 1 time pyperformance benchmark with perf for current workload"
+    perf_enalbed="true"
+    emon_enabled="false"
+    data_dir=$workload_result_dir/perf
+    mkdir $data_dir
+    echo "pyperf_result=$pyperf_result"
+    echo "data_dir=$data_dir"
+    benchmark_collect_data $pyperf_result $data_dir
+    # Run 3 time pyperformance benchmark with emon for current workload
+    perf_enalbed="false"
+    emon_enabled="true"
+    echo "Run 1 time pyperformance benchmark with emon for current workload"
+    data_dir=$workload_result_dir/emon-1
+    mkdir $data_dir
+    benchmark_collect_data $pyperf_result $data_dir
+    echo "Run 2 time pyperformance benchmark with emon for current workload"
+    data_dir=$workload_result_dir/emon-2
+    mkdir $data_dir
+    benchmark_collect_data $pyperf_result $data_dir
+    echo "Run 3 time pyperformance benchmark with emon for current workload"
+    data_dir=$workload_result_dir/emon-3
+    mkdir $data_dir
+    benchmark_collect_data $pyperf_result $data_dir
+done
