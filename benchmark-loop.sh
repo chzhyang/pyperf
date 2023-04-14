@@ -17,7 +17,7 @@ python="/home/yangge/pyperformance/python3.11.2/bin/python3.11.2"
 # Workload name, use all/fannkuch...
 # workload="chaos"
 # Pinned core, use default/0/1/2/2,10...
-core=2
+core=3
 
 # duration and tps
 duration=0
@@ -210,16 +210,7 @@ collect_perf(){
     fi
     cd $1
     echo pwd=$(pwd)
-
-    if [ $perf_duration -gt `expr $duration - 2 \* $perf_delay` ]; then
-        perf_duration=`expr $duration - 2 \* $perf_delay`
-    elif [ $perf_duration -gt `expr $duration - $perf_delay` ]; then
-        perf_duration=`expr $duration - $perf_delay`
-    else
-        perf_delay=2
-        perf_duration=`expr $duration - $perf_delay`
-    fi
-    
+    perf_duration=$(($duration - 2 * $perf_delay))
     echo "-------------------------------------------------------------------------------"
     echo "Sleeping for ${perf_delay} secs"
     sleep $perf_delay
@@ -445,6 +436,7 @@ echo "Loop run pyperformance benchmark workloads"
 cat $cur_dir/pyperformance-list.txt | while read line; do
     # Prepare result dir for current workload
     workload=$line
+    echo "workload=$workload"
     workload_result_dir=$loop_result_dir/$workload
     mkdir $workload_result_dir
     echo "workload_result_dir=$workload_result_dir"

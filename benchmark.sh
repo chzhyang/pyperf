@@ -161,16 +161,20 @@ caculate_tps(){
         rm mean.txt
     fi
     # python3 -m pyperformance show $workload.json | grep 'Mean' > mean.txt
-    if [ $workload = "all" ]
-    then
-        # Collect all workloads mean results
-        string_flag="Start date:"
-        last_line=$(sed -n "/$string_flag/=" pyperf-warmup-$workload.log | awk '{print $1-1}')
-        echo lateline=$last_line
-        sed -n "1,${last_line}p" pyperf-warmup-$workload.log | grep -i ': Mean' > mean.txt
-    else
-        cat pyperf-warmup-$workload.log | grep -i "$workload: Mean" > mean.txt
-    fi
+    # if [ $workload = "all" ]
+    # then
+    #     # Collect all workloads mean results
+    #     string_flag="Start date:"
+    #     last_line=$(sed -n "/$string_flag/=" pyperf-warmup-$workload.log | awk '{print $1-1}')
+    #     echo lateline=$last_line
+    #     sed -n "1,${last_line}p" pyperf-warmup-$workload.log | grep -i ': Mean' > mean.txt
+    # else
+    #     cat pyperf-warmup-$workload.log | grep -i "$workload: Mean" > mean.txt
+    # fi
+    string_flag="Start date:"
+    last_line=$(sed -n "/$string_flag/=" pyperf-warmup-$workload.log | awk '{print $1-1}')
+    echo lateline=$last_line
+    sed -n "1,${last_line}p" pyperf-warmup-$workload.log | grep -i ': Mean' > mean.txt
 
     # Move time unit to second from mead.txt to mean-result.txt
     if [ -f mean-result.txt ]; then
