@@ -1,6 +1,10 @@
 import argparse
 import pandas as pd
 
+# TODO
+# https://stackoverflow.com/questions/18171739/unicodedecodeerror-when-reading-csv-file-in-pandas
+# https://amberwest.github.io/2019/02/26/%E5%9C%A8%E5%B7%B2%E6%9C%89%E7%9A%84DataFrame%E4%B8%8A%E5%A2%9E%E5%8A%A0%E6%96%B0%E5%88%97/
+
 
 def merge_core_data(inputs, output, socket, core):
     data = pd.DataFrame()
